@@ -1107,12 +1107,12 @@
     (vector? expr) (mapv (partial rewrite-refs ref-map) expr)
     (sequential? expr) (map (partial rewrite-refs ref-map) expr)
     (map? expr) (reduce-kv (fn [m k v]
-                              (assoc m k (if (#{:col :cols :key :source :as :partition-by} k)
-                                           (if (vector? v)
-                                             (mapv (partial rewrite-refs ref-map) v)
-                                             (rewrite-refs ref-map v))
-                                           (rewrite-refs ref-map v))))
-                            {} expr)
+                             (assoc m k (if (#{:col :cols :key :source :as :partition-by} k)
+                                          (if (vector? v)
+                                            (mapv (partial rewrite-refs ref-map) v)
+                                            (rewrite-refs ref-map v))
+                                          (rewrite-refs ref-map v))))
+                           {} expr)
     :else expr))
 
 (defn- rename-join-data-keys

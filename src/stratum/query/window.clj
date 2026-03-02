@@ -394,7 +394,7 @@
                        ^java.util.HashMap part-counts (compute-partition-sizes sorted-indices part-keys length)]
                    (dotimes [i length]
                      (let [idx (aget ^ints sorted-indices i)
-                               p (aget ^longs part-keys idx)]
+                           p (aget ^longs part-keys idx)]
                        (aset result idx (double (.get part-counts p)))))
                    result)
                  (or sliding-frame? (non-default-running-frame? frame))
@@ -447,14 +447,14 @@
                        val-arr (get col-arrays col)
                        is-double (expr/double-array? val-arr)]
                    (loop [i (int 0), running-sum 0.0, cnt (long 0), prev-part Long/MIN_VALUE]
-                       (when (< i length)
-                         (let [idx (aget ^ints sorted-indices i)
-                               p (aget ^longs part-keys idx)
-                               v (if is-double (aget ^doubles val-arr idx) (double (aget ^longs val-arr idx)))
-                               new-sum (if (= p prev-part) (+ running-sum v) v)
-                               new-cnt (long (if (= p prev-part) (inc cnt) 1))]
-                           (aset result idx (/ new-sum (double new-cnt)))
-                           (recur (inc i) new-sum new-cnt p))))
+                     (when (< i length)
+                       (let [idx (aget ^ints sorted-indices i)
+                             p (aget ^longs part-keys idx)
+                             v (if is-double (aget ^doubles val-arr idx) (double (aget ^longs val-arr idx)))
+                             new-sum (if (= p prev-part) (+ running-sum v) v)
+                             new-cnt (long (if (= p prev-part) (inc cnt) 1))]
+                         (aset result idx (/ new-sum (double new-cnt)))
+                         (recur (inc i) new-sum new-cnt p))))
                    result))
 
                :min
