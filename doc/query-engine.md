@@ -14,7 +14,7 @@ Queries are maps with the following optional keys:
  :agg     [agg-spec ...]                  ;; Aggregations
  :group   [col-kw ...]                    ;; Group-by columns
  :having  [pred ...]                      ;; Post-aggregation filter
- :order   [[col dir] ...]                 ;; Sort (:asc/:desc)
+ :order   [[col dir] ...]                 ;; Sort (:asc/:desc), col can be keyword or expr
  :limit   n                               ;; Result limit
  :offset  n                               ;; Result offset
  :distinct true                           ;; SELECT DISTINCT

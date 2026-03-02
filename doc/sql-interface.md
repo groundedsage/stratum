@@ -205,18 +205,21 @@ Translates to:
 | Anomaly detection | `ANOMALY_SCORE, ANOMALY_PREDICT, ANOMALY_PROBA, ANOMALY_CONFIDENCE` |
 | GROUP BY | `GROUP BY col1, col2` |
 | HAVING | `HAVING COUNT(*) > 10` |
-| ORDER BY | `ORDER BY col ASC, col2 DESC` |
+| ORDER BY | `ORDER BY col ASC, col2 DESC`, `ORDER BY a * b DESC` |
 | LIMIT / OFFSET | `LIMIT 100 OFFSET 50` |
 | DISTINCT | `SELECT DISTINCT region` |
 | Math functions | `ABS, SQRT, LOG, EXP, ROUND, FLOOR, CEIL, SIGN, MOD, POWER` |
 | GREATEST / LEAST | `GREATEST(a, b, c)`, `LEAST(a, b)` |
-| String functions | `UPPER, LOWER, LENGTH, SUBSTR, REPLACE, TRIM, CONCAT` |
+| String functions | `UPPER, LOWER, LENGTH, SUBSTR, REPLACE, TRIM, CONCAT` (in SELECT, WHERE, GROUP BY, ORDER BY) |
 | Date functions | `DATE_TRUNC, EXTRACT, DATE_ADD, DATE_DIFF` |
 | Type casts | `CAST(col AS DOUBLE)` |
 | COALESCE / NULLIF | `COALESCE(col, 0)` |
 | EXPLAIN | `EXPLAIN SELECT ...` |
 | Table functions | `SELECT * FROM read_csv('file.csv')` |
 | JOINs | `SELECT ... FROM a JOIN b ON a.id = b.id` |
+| Subqueries | `WHERE x IN (SELECT ...)`, `WHERE x NOT IN (SELECT ...)`, derived tables |
+| CTEs (WITH) | `WITH t AS (SELECT ...) SELECT ... FROM t` |
+| SELECT with literals | `SELECT 1, COUNT(*)`, `SELECT 'tag' AS label, SUM(x)` |
 | CREATE TABLE / DROP TABLE | `CREATE TABLE t (col TYPE, ...)` |
 | INSERT INTO | `INSERT INTO t VALUES (1, 'a'), (2, 'b')` |
 | UPDATE SET | `UPDATE t SET col = val WHERE pred` |
@@ -293,7 +296,7 @@ SELECT *, RANK() OVER (ORDER BY score DESC) AS rank
 FROM scores;
 ```
 
-Supported window functions: `ROW_NUMBER`, `RANK`, `LAG`, `LEAD`, `SUM`, `COUNT`, `AVG` (with optional frame clauses).
+Supported window functions: `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `NTILE`, `PERCENT_RANK`, `CUME_DIST`, `LAG`, `LEAD`, `SUM`, `COUNT`, `AVG`, `MIN`, `MAX` (with optional frame clauses). Default frame follows the SQL standard: without ORDER BY uses the full partition, with ORDER BY uses UNBOUNDED PRECEDING to CURRENT ROW.
 
 ### DML Statements
 
@@ -323,12 +326,12 @@ INSERT INTO users (id, name) VALUES (1, 'Alice')
 
 Table-qualified column references are supported for disambiguation in UPDATE FROM and JOINs (e.g., `employees.dept_code = departments.dept_code`).
 
-### Not Supported
+### Not Yet Supported
 
 | Feature | Notes |
 |---------|-------|
-| Subqueries | `WHERE x IN (SELECT ...)` |
-| CTEs (WITH) | `WITH t AS (SELECT ...)` |
+| Correlated subqueries | `WHERE EXISTS (SELECT ... WHERE inner.x = outer.x)` |
+| Set operations | `UNION`, `INTERSECT`, `EXCEPT` |
 | Transactions | Single-query execution model |
 
 ## Table Functions

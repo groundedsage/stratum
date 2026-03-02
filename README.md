@@ -165,13 +165,13 @@ Every Stratum dataset is a copy-on-write value. Fork one in O(1) to create an is
 
 **Window functions**: ROW_NUMBER, RANK, DENSE_RANK, NTILE, PERCENT_RANK, CUME_DIST, LAG, LEAD, SUM/AVG/COUNT/MIN/MAX OVER - with PARTITION BY, ORDER BY, and frame clauses
 
-**Subqueries and composition**: CTEs (WITH), correlated and uncorrelated subqueries, IN/NOT IN/EXISTS, set operations (UNION, INTERSECT, EXCEPT)
+**Subqueries and composition**: CTEs (WITH), uncorrelated subqueries (IN/NOT IN), derived tables in FROM
 
 **Expressions**: CASE WHEN, COALESCE, NULLIF, GREATEST, LEAST, CAST, arithmetic (+, -, \*, /, %)
 
 **Date/time**: DATE_TRUNC, DATE_ADD, DATE_DIFF, EXTRACT, EPOCH_DAYS, EPOCH_SECONDS
 
-**String**: LIKE, ILIKE, LENGTH, UPPER, LOWER, SUBSTR
+**String**: LIKE, ILIKE, LENGTH, UPPER, LOWER, SUBSTR (usable in SELECT, WHERE, GROUP BY, ORDER BY)
 
 **Aggregates**: SUM, COUNT, AVG, MIN, MAX, STDDEV, VARIANCE, CORR, MEDIAN, PERCENTILE_CONT, APPROX_QUANTILE, COUNT(DISTINCT), FILTER clause
 
@@ -245,7 +245,7 @@ All share copy-on-write semantics and can be branched together via Yggdrasil.
 
 ## Features
 
-- **SQL**: PostgreSQL wire protocol (v3), full DML, CTEs, window functions, joins, subqueries, set operations
+- **SQL**: PostgreSQL wire protocol (v3), full DML, CTEs, window functions, joins, subqueries
 - **Performance**: SIMD filter/aggregate/group-by via Java Vector API, fused single-pass execution, zone map pruning, parallel execution
 - **Persistence**: O(1) CoW snapshots, branching, time-travel, lazy loading from storage
 - **Data**: CSV/Parquet import, dictionary-encoded strings, PostgreSQL NULL semantics, ad-hoc file queries
