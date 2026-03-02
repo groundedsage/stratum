@@ -31,9 +31,40 @@
                  (.add seen vals)))
              results)))
 
+(defn- resolve-having-val
+  "Resolve a HAVING argument: keywords are looked up in the result row
+   (they reference other aggregate columns, e.g. HAVING MIN(a) < MAX(a));
+   numbers pass through as-is."
+  [row arg]
+  (if (keyword? arg)
+    (let [direct (get row arg)]
+      (if (some? direct)
+        direct
+        (let [cn (name arg)
+              idx (clojure.string/last-index-of cn "_")]
+          (if idx
+            (get row (keyword (subs cn 0 idx)))
+            direct))))
+    arg))
+
+(defn- resolve-having-col
+  "Resolve the column (LHS) of a HAVING predicate from a result row.
+   Tries exact key first, then falls back to base key without _col suffix."
+  [row col]
+  (let [direct (get row col)]
+    (if (some? direct)
+      direct
+      (let [cn (name col)
+            idx (clojure.string/last-index-of cn "_")]
+        (if idx
+          (get row (keyword (subs cn 0 idx)))
+          direct)))))
+
 (defn apply-having
   "Apply :having predicates to grouped results.
-   Having predicates reference result columns (aggregation aliases)."
+   Having predicates reference result columns (aggregation aliases).
+   Both the column (LHS) and comparison args (RHS) may be keyword
+   references to aggregate columns (e.g. HAVING MIN(a) < MAX(a))."
   [results having-preds]
   (if (empty? having-preds)
     results
@@ -43,18 +74,7 @@
                            (let [col (first pred)
                                  op (second pred)
                                  args (subvec pred 2)
-                                 ;; Try exact key first, then fall back to base key without _col suffix
-                                 ;; (handles auto-alias dedup where :sum_price becomes :sum when single agg).
-                                 ;; Use last-index-of so :sum_price_usd → :sum_price (correct)
-                                 ;; instead of first-index-of which would give :sum (wrong).
-                                 v (let [direct (get row col)]
-                                     (if (some? direct)
-                                       direct
-                                       (let [cn (name col)
-                                             idx (clojure.string/last-index-of cn "_")]
-                                         (if idx
-                                           (get row (keyword (subs cn 0 idx)))
-                                           direct))))]
+                                 v (resolve-having-col row col)]
                              (cond
                                ;; IS NULL / IS NOT NULL work on nil values
                                (= op :is-null) (or (nil? v) (and (number? v) (Double/isNaN (double v))))
@@ -63,17 +83,18 @@
                                (nil? v) false
                                (and (number? v) (Double/isNaN (double v))) false
                                :else
-                               (case op
-                                 :lt    (< (double v) (double (first args)))
-                                 :gt    (> (double v) (double (first args)))
-                                 :lte   (<= (double v) (double (first args)))
-                                 :gte   (>= (double v) (double (first args)))
-                                 :eq    (== (double v) (double (first args)))
-                                 :neq   (not (== (double v) (double (first args))))
-                                 :range (let [lo (double (first args))
-                                              hi (double (second args))]
-                                          (and (>= (double v) lo) (< (double v) hi)))
-                                 true))))
+                               (let [resolve #(resolve-having-val row %)]
+                                 (case op
+                                   :lt    (< (double v) (double (resolve (first args))))
+                                   :gt    (> (double v) (double (resolve (first args))))
+                                   :lte   (<= (double v) (double (resolve (first args))))
+                                   :gte   (>= (double v) (double (resolve (first args))))
+                                   :eq    (== (double v) (double (resolve (first args))))
+                                   :neq   (not (== (double v) (double (resolve (first args)))))
+                                   :range (let [lo (double (resolve (first args)))
+                                                hi (double (resolve (second args)))]
+                                            (and (>= (double v) lo) (< (double v) hi)))
+                                   true)))))
                          normalized))
                results))))
 

@@ -38,11 +38,11 @@ SELECT region, SUM(amount) FILTER (WHERE status = 1), COUNT(*) FILTER (WHERE sta
 East	100.000000	1.000000
 West	500.000000	2.000000
 
-# FILTER with no matching rows (returns 0 since CASE produces 0 for non-matching)
+# FILTER with no matching rows — SUM returns NULL per SQL standard
 query R nosort
 SELECT SUM(amount) FILTER (WHERE status > 5) FROM sales
 ----
-0.000000
+NULL
 
 # MIN/MAX with FILTER
 query RR nosort

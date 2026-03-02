@@ -127,7 +127,7 @@
   (let [data (:data col-info)]
     (if (instance? (Class/forName "[D") data)
       data
-      (ColumnOps/longToDouble ^longs data (int length)))))
+      (ColumnOps/longToDoubleNullSafe ^longs data (int length)))))
 
 (defn- prepare-aggregation
   "Prepare aggregation arrays for Java methods.

@@ -206,7 +206,7 @@
   (let [data (:data col-info)]
     (if (expr/double-array? data)
       data
-      (ColumnOps/longToDouble ^longs data (int length)))))
+      (ColumnOps/longToDoubleNullSafe ^longs data (int length)))))
 
 (defn- execute-fused-multi-sum
   "Execute multiple SUM-like aggs in a single pass via Java fusedSimdMultiSumParallel.
@@ -893,7 +893,7 @@
        :agg [[:sum :revenue]]
        :group [:region]
        :result :columns})"
-  [{:keys [from join where select agg group having order limit offset result distinct window _union _set-op]
+  [{:keys [from join where select agg group having order limit offset result distinct window _union _set-op _having-only-keys]
     :as query}]
   ;; Handle set operations (UNION/INTERSECT/EXCEPT)
   (if-let [set-op (or _set-op (when _union {:op :union :queries (:queries _union) :all? (:all? _union)}))]
@@ -962,6 +962,9 @@
             fused-any
             (let [results (if distinct (post/apply-distinct fused-any) fused-any)
                   results (if (seq having) (post/apply-having results having) results)
+                  results (if (seq _having-only-keys)
+                            (mapv #(apply dissoc % _having-only-keys) results)
+                            results)
                   results (if (seq order) (post/apply-order results order limit offset) results)
                   results (if (or limit offset) (post/apply-limit-offset results limit offset) results)]
               results))
@@ -1584,6 +1587,9 @@
                                   results)
                         results (if distinct (post/apply-distinct results) results)
                         results (if (seq having) (post/apply-having results having) results)
+                        results (if (seq _having-only-keys)
+                                  (mapv #(apply dissoc % _having-only-keys) results)
+                                  results)
                         results (if (seq order) (post/apply-order results order limit offset) results)
                         results (if (or limit offset) (post/apply-limit-offset results limit offset) results)]
                     results))))))))))

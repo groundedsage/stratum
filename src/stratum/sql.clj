@@ -692,6 +692,8 @@
          (select-item-is-agg? (.get ^ParenthesedExpressionList expr 0)))
     :else false))
 
+(declare filtered-aggregate? translate-filtered-aggregate)
+
 (defn- collect-aggs-from-expr
   "Collect all aggregate functions from an expression tree.
    Returns a vector of [agg-spec keyword-name] pairs."
@@ -702,6 +704,11 @@
       (let [agg-spec (translate-aggregate expr)
             agg-name (keyword (str "_agg" (swap! counter-atom inc)))]
         [[agg-spec agg-name]]))
+
+    (and (instance? AnalyticExpression expr) (filtered-aggregate? expr))
+    (let [agg-spec (translate-filtered-aggregate ^AnalyticExpression expr)
+          agg-name (keyword (str "_agg" (swap! counter-atom inc)))]
+      [[agg-spec agg-name]])
 
     (instance? Addition expr)
     (into (vec (collect-aggs-from-expr (.getLeftExpression ^Addition expr) counter-atom))
@@ -737,6 +744,10 @@
     (when (aggregate-function? expr)
       (let [kw (get agg-map (translate-aggregate expr))]
         (when kw kw)))
+
+    (and (instance? AnalyticExpression expr) (filtered-aggregate? expr))
+    (let [kw (get agg-map (translate-filtered-aggregate ^AnalyticExpression expr))]
+      (when kw kw))
 
     (instance? Addition expr)
     (let [l (build-post-expr (.getLeftExpression ^Addition expr) agg-map)
@@ -803,6 +814,94 @@
       "MIN" [:min case-expr]
       "MAX" [:max case-expr]
       (throw (ex-info (str "FILTER not supported for: " name) {:function name})))))
+
+(defn- collect-aggs-from-having-expr
+  "Walk a JSqlParser Expression tree (HAVING clause) and collect all aggregate
+   Function nodes as translated agg specs. Returns a vector of agg specs
+   (e.g. [[:avg :a] [:sum :b]])."
+  [expr]
+  (cond
+    (nil? expr) []
+
+    (instance? Function expr)
+    (if (aggregate-function? expr)
+      [(translate-aggregate ^Function expr)]
+      [])
+
+    (instance? AnalyticExpression expr)
+    (if (filtered-aggregate? expr)
+      [(translate-filtered-aggregate ^AnalyticExpression expr)]
+      [])
+
+    ;; Comparison operators — walk both sides
+    (instance? GreaterThan expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^GreaterThan expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^GreaterThan expr)))
+
+    (instance? GreaterThanEquals expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^GreaterThanEquals expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^GreaterThanEquals expr)))
+
+    (instance? MinorThan expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^MinorThan expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^MinorThan expr)))
+
+    (instance? MinorThanEquals expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^MinorThanEquals expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^MinorThanEquals expr)))
+
+    (instance? EqualsTo expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^EqualsTo expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^EqualsTo expr)))
+
+    (instance? NotEqualsTo expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^NotEqualsTo expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^NotEqualsTo expr)))
+
+    ;; Boolean connectives
+    (instance? AndExpression expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^AndExpression expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^AndExpression expr)))
+
+    (instance? OrExpression expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^OrExpression expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^OrExpression expr)))
+
+    (instance? NotExpression expr)
+    (collect-aggs-from-having-expr (.getExpression ^NotExpression expr))
+
+    ;; Arithmetic (HAVING SUM(a) + SUM(b) > 100)
+    (instance? Addition expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^Addition expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^Addition expr)))
+
+    (instance? Subtraction expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^Subtraction expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^Subtraction expr)))
+
+    (instance? Multiplication expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^Multiplication expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^Multiplication expr)))
+
+    (instance? Division expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^Division expr))
+          (collect-aggs-from-having-expr (.getRightExpression ^Division expr)))
+
+    (instance? Parenthesis expr)
+    (collect-aggs-from-having-expr (.getExpression ^Parenthesis expr))
+
+    (instance? Between expr)
+    (into (collect-aggs-from-having-expr (.getLeftExpression ^Between expr))
+          (into (collect-aggs-from-having-expr (.getBetweenExpressionStart ^Between expr))
+                (collect-aggs-from-having-expr (.getBetweenExpressionEnd ^Between expr))))
+
+    (instance? IsNullExpression expr)
+    (collect-aggs-from-having-expr (.getLeftExpression ^IsNullExpression expr))
+
+    (instance? InExpression expr)
+    (collect-aggs-from-having-expr (.getLeftExpression ^InExpression expr))
+
+    :else []))
 
 (defn- extract-agg-from-expr
   "Extract aggregate spec from a SELECT expression that may contain an aggregate.
@@ -1049,43 +1148,43 @@
         select-column-specs
         (->> select-items
              (map-indexed
-               (fn [idx ^SelectItem item]
-                 (let [expr (.getExpression item)
-                       alias (.getAliasName item)]
-                   (cond
+              (fn [idx ^SelectItem item]
+                (let [expr (.getExpression item)
+                      alias (.getAliasName item)]
+                  (cond
                      ;; SELECT *
-                     (instance? AllColumns expr)
-                     (mapv (fn [k] {:type :ref :key k}) (keys from-data))
+                    (instance? AllColumns expr)
+                    (mapv (fn [k] {:type :ref :key k}) (keys from-data))
 
                      ;; Aggregate function
-                     (select-item-is-agg? expr)
-                     [{:type :agg :alias (when alias (keyword alias))}]
+                    (select-item-is-agg? expr)
+                    [{:type :agg :alias (when alias (keyword alias))}]
 
                      ;; Window function
-                     (window-function? expr)
-                     [{:type :ref :key (keyword (or alias (str "_win_" idx)))}]
+                    (window-function? expr)
+                    [{:type :ref :key (keyword (or alias (str "_win_" idx)))}]
 
                      ;; Column reference, literal, or expression
-                     :else
-                     (let [col-expr (translate-expr expr)]
-                       [(cond
-                          (keyword? col-expr)
-                          {:type :ref :key (if alias (keyword alias) col-expr)
-                           :source col-expr}
+                    :else
+                    (let [col-expr (translate-expr expr)]
+                      [(cond
+                         (keyword? col-expr)
+                         {:type :ref :key (if alias (keyword alias) col-expr)
+                          :source col-expr}
 
-                          (number? col-expr)
-                          {:type :literal :key (if alias (keyword alias)
-                                                 (keyword (str col-expr)))
-                           :value col-expr}
+                         (number? col-expr)
+                         {:type :literal :key (if alias (keyword alias)
+                                                  (keyword (str col-expr)))
+                          :value col-expr}
 
-                          (string? col-expr)
-                          {:type :literal :key (if alias (keyword alias)
-                                                 (keyword (str "'" col-expr "'")))
-                           :value col-expr}
+                         (string? col-expr)
+                         {:type :literal :key (if alias (keyword alias)
+                                                  (keyword (str "'" col-expr "'")))
+                          :value col-expr}
 
-                          :else ;; expression like [:* :a :b]
-                          {:type :ref :key (if alias (keyword alias)
-                                            (keyword (str "_expr_" idx)))})])))))
+                         :else ;; expression like [:* :a :b]
+                         {:type :ref :key (if alias (keyword alias)
+                                              (keyword (str "_expr_" idx)))})])))))
              (mapcat identity)
              (vec))
 
@@ -1158,6 +1257,37 @@
         having-preds (when having-expr
                        (translate-predicate having-expr))
 
+        ;; Inject HAVING-referenced aggregates that aren't already in the agg list.
+        ;; E.g., SELECT g, SUM(a) FROM t GROUP BY g HAVING AVG(a) > 4
+        ;; needs AVG(a) computed even though it's not in SELECT.
+        having-agg-specs (when having-expr
+                           (collect-aggs-from-having-expr having-expr))
+        existing-bare-aggs (set (map (fn [a] (if (= :as (first a)) (second a) a))
+                                     (or aggs [])))
+        having-only-aggs (vec (distinct (remove existing-bare-aggs (or having-agg-specs []))))
+        ;; Give each HAVING-only agg an explicit alias matching its HAVING reference
+        ;; key (:{op}_{col}). This ensures auto-alias-aggs won't rename it, and the
+        ;; key used for stripping matches the actual result key.
+        having-only-keys (when (seq having-only-aggs)
+                           (set (map (fn [spec]
+                                       (let [op-kw (first spec)
+                                             col-kw (second spec)]
+                                         (if col-kw
+                                           (keyword (str (name op-kw) "_" (name col-kw)))
+                                           op-kw)))
+                                     having-only-aggs)))
+        having-only-aliased (mapv (fn [spec]
+                                    (let [op-kw (first spec)
+                                          col-kw (second spec)
+                                          alias (if col-kw
+                                                  (keyword (str (name op-kw) "_" (name col-kw)))
+                                                  op-kw)]
+                                      [:as spec alias]))
+                                  having-only-aggs)
+        aggs (if (seq having-only-aliased)
+               (into (or aggs []) having-only-aliased)
+               aggs)
+
         ;; Build ORDER BY
         orders (when order-by
                  (mapv translate-order-element order-by))
@@ -1191,6 +1321,7 @@
                 projection (assoc :select projection)
                 (seq window-specs) (assoc :window window-specs)
                 (seq post-aggs) (assoc :_post-aggs post-aggs)
+                (seq having-only-keys) (assoc :_having-only-keys having-only-keys)
                 ;; Only attach _select-columns when literals need injection into
                 ;; an aggregate/group-by query (the bug: literals are dropped).
                 ;; Pure projection queries use :select; don't interfere.

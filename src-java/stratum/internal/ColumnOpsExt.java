@@ -1189,12 +1189,14 @@ public final class ColumnOpsExt {
             if (numLongPreds > 2) { lm = applyLongPred(lm, LongVector.fromArray(LONG_SPECIES, lc2, i), lt2, llo2, lhi2); if (!lm.anyTrue()) continue; }
             if (numLongPreds > 3) { lm = applyLongPred(lm, LongVector.fromArray(LONG_SPECIES, lc3, i), lt3, llo3, lhi3); if (!lm.anyTrue()) continue; }
 
-            matchCount += lm.trueCount();
             LongVector nullSentinel = LongVector.broadcast(LONG_SPECIES, Long.MIN_VALUE);
-            if (numSumAggs > 0) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl0, i); sv0 = sv0.add(v, lm.and(v.compare(VectorOperators.NE, nullSentinel))); }
-            if (numSumAggs > 1) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl1, i); sv1 = sv1.add(v, lm.and(v.compare(VectorOperators.NE, nullSentinel))); }
-            if (numSumAggs > 2) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl2, i); sv2 = sv2.add(v, lm.and(v.compare(VectorOperators.NE, nullSentinel))); }
-            if (numSumAggs > 3) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl3, i); sv3 = sv3.add(v, lm.and(v.compare(VectorOperators.NE, nullSentinel))); }
+            // Count only non-NULL matched rows (union of non-null across agg columns)
+            VectorMask<Long> anyNonNull = LONG_SPECIES.maskAll(false);
+            if (numSumAggs > 0) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl0, i); VectorMask<Long> nn = lm.and(v.compare(VectorOperators.NE, nullSentinel)); sv0 = sv0.add(v, nn); anyNonNull = anyNonNull.or(nn); }
+            if (numSumAggs > 1) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl1, i); VectorMask<Long> nn = lm.and(v.compare(VectorOperators.NE, nullSentinel)); sv1 = sv1.add(v, nn); anyNonNull = anyNonNull.or(nn); }
+            if (numSumAggs > 2) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl2, i); VectorMask<Long> nn = lm.and(v.compare(VectorOperators.NE, nullSentinel)); sv2 = sv2.add(v, nn); anyNonNull = anyNonNull.or(nn); }
+            if (numSumAggs > 3) { LongVector v = LongVector.fromArray(LONG_SPECIES, sl3, i); VectorMask<Long> nn = lm.and(v.compare(VectorOperators.NE, nullSentinel)); sv3 = sv3.add(v, nn); anyNonNull = anyNonNull.or(nn); }
+            matchCount += anyNonNull.trueCount();
         }
 
         double[] sums = new double[numSumAggs + 1];
@@ -1207,11 +1209,12 @@ public final class ColumnOpsExt {
         for (int i = upperBound; i < end; i++) {
             if (ColumnOps.evaluatePredicates(numLongPreds, longPredTypes, longCols, longLo, longHi,
                                              0, null, null, null, null, i)) {
-                if (numSumAggs > 0 && sl0[i] != Long.MIN_VALUE) sums[0] += sl0[i];
-                if (numSumAggs > 1 && sl1[i] != Long.MIN_VALUE) sums[1] += sl1[i];
-                if (numSumAggs > 2 && sl2[i] != Long.MIN_VALUE) sums[2] += sl2[i];
-                if (numSumAggs > 3 && sl3[i] != Long.MIN_VALUE) sums[3] += sl3[i];
-                matchCount++;
+                boolean anyNonNullScalar = false;
+                if (numSumAggs > 0 && sl0[i] != Long.MIN_VALUE) { sums[0] += sl0[i]; anyNonNullScalar = true; }
+                if (numSumAggs > 1 && sl1[i] != Long.MIN_VALUE) { sums[1] += sl1[i]; anyNonNullScalar = true; }
+                if (numSumAggs > 2 && sl2[i] != Long.MIN_VALUE) { sums[2] += sl2[i]; anyNonNullScalar = true; }
+                if (numSumAggs > 3 && sl3[i] != Long.MIN_VALUE) { sums[3] += sl3[i]; anyNonNullScalar = true; }
+                if (anyNonNullScalar) matchCount++;
             }
         }
         sums[numSumAggs] = (double) matchCount;

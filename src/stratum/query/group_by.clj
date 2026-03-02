@@ -531,41 +531,51 @@
                            :sum (if (zero? match-count)
                                   nil
                                   (if-let [expr (:expr agg)]
-                                    (reduce (fn [^double acc i]
-                                              (let [v (eval-agg-expr expr col-arrays (int i))]
-                                                (if (Double/isNaN v) acc (+ acc v))))
-                                            0.0 match-indices)
+                                    (let [r (reduce (fn [^double acc i]
+                                                      (let [v (eval-agg-expr expr col-arrays (int i))]
+                                                        (if (Double/isNaN v) acc
+                                                            (if (Double/isNaN acc) v (+ acc v)))))
+                                                    Double/NaN match-indices)]
+                                      (if (Double/isNaN r) nil r))
                                     (let [col-data (get col-arrays (:col agg))
-                                          is-long (expr/long-array? col-data)]
-                                      (reduce (fn [^double acc i]
-                                                (let [v (aget-col col-data (int i))]
-                                                  (if (if is-long
-                                                        (= (long v) Long/MIN_VALUE)
-                                                        (Double/isNaN v))
-                                                    acc (+ acc v))))
-                                              0.0 match-indices))))
+                                          is-long (expr/long-array? col-data)
+                                          r (reduce (fn [^double acc i]
+                                                      (let [v (aget-col col-data (int i))]
+                                                        (if (if is-long
+                                                              (= (long v) Long/MIN_VALUE)
+                                                              (Double/isNaN v))
+                                                          acc
+                                                          (if (Double/isNaN acc) v (+ acc v)))))
+                                                    Double/NaN match-indices)]
+                                      (if (Double/isNaN r) nil r))))
                            :min (if (zero? match-count)
                                   nil
                                   (let [col-data (get col-arrays (:col agg))
-                                        is-long (expr/long-array? col-data)]
-                                    (reduce (fn [^double acc i]
-                                              (let [v (aget-col col-data (int i))]
-                                                (if (if is-long
-                                                      (= (long v) Long/MIN_VALUE)
-                                                      (Double/isNaN v))
-                                                  acc (Math/min acc v))))
-                                            Double/POSITIVE_INFINITY match-indices)))
+                                        is-long (expr/long-array? col-data)
+                                        [r found?]
+                                        (reduce (fn [[^double acc ^long found] i]
+                                                  (let [v (aget-col col-data (int i))]
+                                                    (if (if is-long
+                                                          (= (long v) Long/MIN_VALUE)
+                                                          (Double/isNaN v))
+                                                      [acc found]
+                                                      [(if (zero? found) v (Math/min acc v)) 1])))
+                                                [Double/POSITIVE_INFINITY 0] match-indices)]
+                                    (if (zero? ^long found?) nil r)))
                            :max (if (zero? match-count)
                                   nil
                                   (let [col-data (get col-arrays (:col agg))
-                                        is-long (expr/long-array? col-data)]
-                                    (reduce (fn [^double acc i]
-                                              (let [v (aget-col col-data (int i))]
-                                                (if (if is-long
-                                                      (= (long v) Long/MIN_VALUE)
-                                                      (Double/isNaN v))
-                                                  acc (Math/max acc v))))
-                                            Double/NEGATIVE_INFINITY match-indices)))
+                                        is-long (expr/long-array? col-data)
+                                        [r found?]
+                                        (reduce (fn [[^double acc ^long found] i]
+                                                  (let [v (aget-col col-data (int i))]
+                                                    (if (if is-long
+                                                          (= (long v) Long/MIN_VALUE)
+                                                          (Double/isNaN v))
+                                                      [acc found]
+                                                      [(if (zero? found) v (Math/max acc v)) 1])))
+                                                [Double/NEGATIVE_INFINITY 0] match-indices)]
+                                    (if (zero? ^long found?) nil r)))
                            :avg (if (zero? match-count)
                                   nil
                                   (if-let [expr (:expr agg)]
