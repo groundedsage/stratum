@@ -142,7 +142,7 @@
                                (let [[n dir] start-bound]
                                  (case dir
                                    :preceding (max ps (- i (long n)))
-                                   :following (min (dec pe) (+ i (long n)))))
+                                   :following (min pe (+ i (long n)))))
                                :else ps))
               win-end (int (cond
                              (= end-bound :unbounded-following) pe
@@ -153,7 +153,9 @@
                                  :preceding (max ps (inc (- i (long n))))
                                  :following (min pe (inc (+ i (long n))))))
                              :else (inc i)))]
-          (aset result idx (- (aget prefix win-end) (aget prefix win-start))))))
+          (aset result idx (if (>= win-start win-end)
+                             Double/NaN  ;; empty frame → NULL per SQL standard
+                             (- (aget prefix win-end) (aget prefix win-start)))))))
     result))
 
 (defn- compute-sliding-window-count
@@ -174,7 +176,7 @@
                              (= start-bound :current-row) i
                              (vector? start-bound)
                              (let [[n dir] start-bound]
-                               (case dir :preceding (max ps (- i (long n))) :following (min (dec pe) (+ i (long n)))))
+                               (case dir :preceding (max ps (- i (long n))) :following (min pe (+ i (long n)))))
                              :else ps))
             win-end (int (cond
                            (= end-bound :unbounded-following) pe
@@ -183,7 +185,9 @@
                            (let [[n dir] end-bound]
                              (case dir :preceding (max ps (inc (- i (long n)))) :following (min pe (inc (+ i (long n))))))
                            :else (inc i)))]
-        (aset result idx (double (- win-end win-start)))))
+        (aset result idx (if (>= win-start win-end)
+                           Double/NaN  ;; empty frame → NULL per SQL standard
+                           (double (- win-end win-start))))))
     result))
 
 ;; ============================================================================
@@ -439,8 +443,10 @@
                                                           (:start frame) (:end frame))
                        result (double-array length)]
                    (dotimes [i length]
-                     (aset result i (/ (aget ^doubles sums i)
-                                       (Math/max 1.0 (aget ^doubles cnts i)))))
+                     (let [c (aget ^doubles cnts i)]
+                       (aset result i (if (Double/isNaN c)
+                                        Double/NaN  ;; empty frame → NULL
+                                        (/ (aget ^doubles sums i) (Math/max 1.0 c))))))
                    result)
                  :else
                  (let [result (double-array length)

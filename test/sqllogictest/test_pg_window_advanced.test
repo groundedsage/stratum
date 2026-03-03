@@ -1,0 +1,166 @@
+# test_pg_window_advanced.test
+# Advanced window patterns from PostgreSQL regression/window.sql
+# Multiple partitions, frame edge cases, window over GROUP BY.
+
+statement ok
+CREATE TABLE empsalary (depname TEXT, empno INTEGER, salary INTEGER)
+
+statement ok
+INSERT INTO empsalary VALUES ('develop', 10, 5200), ('sales', 1, 5000), ('personnel', 5, 3500), ('sales', 4, 4800), ('personnel', 2, 3900), ('develop', 7, 4200), ('develop', 9, 4500), ('sales', 3, 4800), ('develop', 8, 6000), ('develop', 11, 5200)
+
+# ============================================================
+# SUM over whole partition (no ORDER BY = entire partition frame)
+# ============================================================
+
+query TIR rowsort
+SELECT depname, empno, SUM(salary) OVER (PARTITION BY depname) FROM empsalary
+----
+develop	10	25100.000000
+develop	11	25100.000000
+develop	7	25100.000000
+develop	8	25100.000000
+develop	9	25100.000000
+personnel	2	7400.000000
+personnel	5	7400.000000
+sales	1	14600.000000
+sales	3	14600.000000
+sales	4	14600.000000
+
+# ============================================================
+# COUNT(*) OVER () — every row gets total count
+# ============================================================
+
+query II rowsort
+SELECT empno, COUNT(*) OVER () FROM empsalary
+----
+1	10
+10	10
+11	10
+2	10
+3	10
+4	10
+5	10
+7	10
+8	10
+9	10
+
+# ============================================================
+# Multiple window functions with DIFFERENT partition specs
+# ============================================================
+
+query TIII rowsort
+SELECT depname, empno, COUNT(*) OVER (PARTITION BY depname), ROW_NUMBER() OVER (ORDER BY empno) FROM empsalary
+----
+develop	10	5	9
+develop	11	5	10
+develop	7	5	6
+develop	8	5	7
+develop	9	5	8
+personnel	2	2	2
+personnel	5	2	5
+sales	1	3	1
+sales	3	3	3
+sales	4	3	4
+
+# ============================================================
+# ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING (sliding window)
+# ============================================================
+
+query IIR rowsort
+SELECT empno, salary, SUM(salary) OVER (ORDER BY salary, empno ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM empsalary
+----
+1	5000	25000.000000
+10	5200	26200.000000
+11	5200	21400.000000
+2	3900	16100.000000
+3	4800	23300.000000
+4	4800	24300.000000
+5	3500	11600.000000
+7	4200	20900.000000
+8	6000	16400.000000
+9	4500	22200.000000
+
+# ============================================================
+# ROWS frame excluding current row: 2 PRECEDING AND 1 PRECEDING
+# Empty frame at start → NULL
+# ============================================================
+
+query IIR rowsort
+SELECT empno, salary, SUM(salary) OVER (ORDER BY salary, empno ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING) FROM empsalary
+----
+1	5000	9600.000000
+10	5200	9800.000000
+11	5200	10200.000000
+2	3900	3500.000000
+3	4800	8700.000000
+4	4800	9300.000000
+5	3500	NULL
+7	4200	7400.000000
+8	6000	10400.000000
+9	4500	8100.000000
+
+# ============================================================
+# ROWS frame: 1 FOLLOWING to 3 FOLLOWING (future-only)
+# Empty frame at end → NULL
+# ============================================================
+
+query IIR rowsort
+SELECT empno, salary, SUM(salary) OVER (ORDER BY salary, empno ROWS BETWEEN 1 FOLLOWING AND 3 FOLLOWING) FROM empsalary
+----
+1	5000	16400.000000
+10	5200	11200.000000
+11	5200	6000.000000
+2	3900	13500.000000
+3	4800	15000.000000
+4	4800	15400.000000
+5	3500	12600.000000
+7	4200	14100.000000
+8	6000	NULL
+9	4500	14600.000000
+
+# ============================================================
+# LAG with default value
+# ============================================================
+
+query TIIR rowsort
+SELECT depname, empno, salary, LAG(salary, 1, -1) OVER (PARTITION BY depname ORDER BY salary) FROM empsalary
+----
+develop	10	5200	4500.000000
+develop	11	5200	5200.000000
+develop	7	4200	-1.000000
+develop	8	6000	5200.000000
+develop	9	4500	4200.000000
+personnel	2	3900	3500.000000
+personnel	5	3500	-1.000000
+sales	1	5000	4800.000000
+sales	3	4800	4800.000000
+sales	4	4800	-1.000000
+
+# ============================================================
+# RANK with ties
+# ============================================================
+
+query TII rowsort
+SELECT depname, empno, RANK() OVER (PARTITION BY depname ORDER BY salary) FROM empsalary
+----
+develop	10	3
+develop	11	3
+develop	7	1
+develop	8	5
+develop	9	2
+personnel	2	2
+personnel	5	1
+sales	1	3
+sales	3	1
+sales	4	1
+
+# ============================================================
+# ROW_NUMBER as subquery filter
+# ============================================================
+
+query II rowsort
+SELECT empno, rn FROM (SELECT empno, ROW_NUMBER() OVER (ORDER BY empno) AS rn FROM empsalary) sub WHERE rn <= 3
+----
+1	1
+2	2
+3	3

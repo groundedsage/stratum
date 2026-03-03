@@ -220,29 +220,73 @@
 
       :case
       (let [branches (:branches expr)
-            ;; Build dictionary from all distinct string branch values
-            all-strings (into [] (comp (map :val) (filter string?)) branches)
-            dict (into-array String (distinct all-strings))
-            dict-map (into {} (map-indexed (fn [i s] [s (long i)])) dict)
-            codes (long-array length Long/MIN_VALUE)
-            assigned (long-array length)
+            ;; Collect string literals and nested expression results
+            ;; First pass: evaluate nested expressions to get their dicts
+            col-arrays (into {} (map (fn [[k v]] [k (:data v)])) columns)
             cache (java.util.HashMap.)
-            ;; Extract raw arrays for eval-case-pred-mask
-            col-arrays (into {} (map (fn [[k v]] [k (:data v)])) columns)]
-        (doseq [branch branches]
-          (let [code (long (get dict-map (:val branch) Long/MIN_VALUE))]
+            ;; Evaluate nested expression branches and collect all strings
+            branch-results (mapv (fn [branch]
+                                   (let [v (:val branch)]
+                                     (if (string? v)
+                                       {:string v}
+                                       ;; Nested expression (e.g. nested CASE) — evaluate recursively
+                                       {:nested (eval-string-expr v columns length)})))
+                                 branches)
+            ;; Build unified dictionary from all string literals + nested dicts
+            all-dict-entries (java.util.ArrayList.)
+            _ (doseq [br branch-results]
+                (if (:string br)
+                  (.add all-dict-entries (:string br))
+                  (let [^"[Ljava.lang.String;" d (:dict (:nested br))]
+                    (dotimes [j (alength d)]
+                      (.add all-dict-entries (aget d j))))))
+            distinct-strings (vec (distinct all-dict-entries))
+            dict (into-array String distinct-strings)
+            dict-map (into {} (map-indexed (fn [i s] [s (long i)])) distinct-strings)
+            codes (long-array length Long/MIN_VALUE)
+            assigned (long-array length)]
+        ;; Process each branch
+        (dotimes [bi (count branches)]
+          (let [branch (nth branches bi)
+                br-result (nth branch-results bi)]
             (if (= :else (:op branch))
               ;; ELSE: assign to all unassigned rows
-              (dotimes [i length]
-                (when (zero? (aget assigned i))
-                  (aset codes i code)
-                  (aset assigned i 1)))
+              (if (:string br-result)
+                (let [code (long (get dict-map (:string br-result) Long/MIN_VALUE))]
+                  (dotimes [i length]
+                    (when (zero? (aget assigned i))
+                      (aset codes i code)
+                      (aset assigned i 1))))
+                ;; Nested expression result for ELSE
+                (let [nested (:nested br-result)
+                      ^longs nested-codes (:data nested)
+                      ^"[Ljava.lang.String;" nested-dict (:dict nested)]
+                  (dotimes [i length]
+                    (when (zero? (aget assigned i))
+                      (let [nc (aget nested-codes i)]
+                        (if (= nc Long/MIN_VALUE)
+                          (aset codes i Long/MIN_VALUE)
+                          (aset codes i (long (get dict-map (aget nested-dict (int nc)) Long/MIN_VALUE)))))
+                      (aset assigned i 1)))))
               ;; Conditional: evaluate predicate mask, assign matching unassigned rows
               (let [mask (eval-case-pred-mask (:pred branch) col-arrays length cache)]
-                (dotimes [i length]
-                  (when (and (zero? (aget assigned i)) (== 1 (aget ^longs mask i)))
-                    (aset codes i code)
-                    (aset assigned i 1)))))))
+                (if (:string br-result)
+                  (let [code (long (get dict-map (:string br-result) Long/MIN_VALUE))]
+                    (dotimes [i length]
+                      (when (and (zero? (aget assigned i)) (== 1 (aget ^longs mask i)))
+                        (aset codes i code)
+                        (aset assigned i 1))))
+                  ;; Nested expression result for WHEN
+                  (let [nested (:nested br-result)
+                        ^longs nested-codes (:data nested)
+                        ^"[Ljava.lang.String;" nested-dict (:dict nested)]
+                    (dotimes [i length]
+                      (when (and (zero? (aget assigned i)) (== 1 (aget ^longs mask i)))
+                        (let [nc (aget nested-codes i)]
+                          (if (= nc Long/MIN_VALUE)
+                            (aset codes i Long/MIN_VALUE)
+                            (aset codes i (long (get dict-map (aget nested-dict (int nc)) Long/MIN_VALUE)))))
+                        (aset assigned i 1)))))))))
         {:type :int64 :data codes :dict dict :dict-type :string}))))
 
 ;; ============================================================================

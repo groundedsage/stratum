@@ -893,7 +893,7 @@
        :agg [[:sum :revenue]]
        :group [:region]
        :result :columns})"
-  [{:keys [from join where select agg group having order limit offset result distinct window _union _set-op _having-only-keys]
+  [{:keys [from join where select agg group having order limit offset result distinct window _union _set-op _having-only-keys _order-only-keys]
     :as query}]
   ;; Handle set operations (UNION/INTERSECT/EXCEPT)
   (if-let [set-op (or _set-op (when _union {:op :union :queries (:queries _union) :all? (:all? _union)}))]
@@ -966,6 +966,9 @@
                             (mapv #(apply dissoc % _having-only-keys) results)
                             results)
                   results (if (seq order) (post/apply-order results order limit offset) results)
+                  results (if (seq _order-only-keys)
+                            (mapv #(apply dissoc % _order-only-keys) results)
+                            results)
                   results (if (or limit offset) (post/apply-limit-offset results limit offset) results)]
               results))
       ;; Normal path
@@ -1591,6 +1594,9 @@
                                   (mapv #(apply dissoc % _having-only-keys) results)
                                   results)
                         results (if (seq order) (post/apply-order results order limit offset) results)
+                        results (if (seq _order-only-keys)
+                                  (mapv #(apply dissoc % _order-only-keys) results)
+                                  results)
                         results (if (or limit offset) (post/apply-limit-offset results limit offset) results)]
                     results))))))))))
 

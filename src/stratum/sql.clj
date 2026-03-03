@@ -695,6 +695,28 @@
     (instance? ParenthesedExpressionList expr)
     (and (= 1 (.size ^ParenthesedExpressionList expr))
          (select-item-is-agg? (.get ^ParenthesedExpressionList expr 0)))
+    ;; Comparison operators (for CASE WHEN conditions containing aggregates)
+    (instance? GreaterThan expr) (or (select-item-is-agg? (.getLeftExpression ^GreaterThan expr))
+                                     (select-item-is-agg? (.getRightExpression ^GreaterThan expr)))
+    (instance? GreaterThanEquals expr) (or (select-item-is-agg? (.getLeftExpression ^GreaterThanEquals expr))
+                                           (select-item-is-agg? (.getRightExpression ^GreaterThanEquals expr)))
+    (instance? MinorThan expr) (or (select-item-is-agg? (.getLeftExpression ^MinorThan expr))
+                                   (select-item-is-agg? (.getRightExpression ^MinorThan expr)))
+    (instance? MinorThanEquals expr) (or (select-item-is-agg? (.getLeftExpression ^MinorThanEquals expr))
+                                         (select-item-is-agg? (.getRightExpression ^MinorThanEquals expr)))
+    (instance? EqualsTo expr) (or (select-item-is-agg? (.getLeftExpression ^EqualsTo expr))
+                                  (select-item-is-agg? (.getRightExpression ^EqualsTo expr)))
+    (instance? NotEqualsTo expr) (or (select-item-is-agg? (.getLeftExpression ^NotEqualsTo expr))
+                                     (select-item-is-agg? (.getRightExpression ^NotEqualsTo expr)))
+    ;; CASE WHEN with aggregate conditions or values
+    (instance? CaseExpression expr)
+    (let [^CaseExpression ce expr]
+      (or (some (fn [^WhenClause w]
+                  (or (select-item-is-agg? (.getWhenExpression w))
+                      (select-item-is-agg? (.getThenExpression w))))
+                (.getWhenClauses ce))
+          (when-let [e (.getElseExpression ce)]
+            (select-item-is-agg? e))))
     :else false))
 
 (declare filtered-aggregate? translate-filtered-aggregate)
@@ -737,6 +759,38 @@
     (instance? ParenthesedExpressionList expr)
     (when (= 1 (.size ^ParenthesedExpressionList expr))
       (collect-aggs-from-expr (.get ^ParenthesedExpressionList expr 0) counter-atom))
+
+    ;; Comparison operators (inside CASE WHEN conditions)
+    (instance? GreaterThan expr)
+    (into (vec (collect-aggs-from-expr (.getLeftExpression ^GreaterThan expr) counter-atom))
+          (collect-aggs-from-expr (.getRightExpression ^GreaterThan expr) counter-atom))
+    (instance? GreaterThanEquals expr)
+    (into (vec (collect-aggs-from-expr (.getLeftExpression ^GreaterThanEquals expr) counter-atom))
+          (collect-aggs-from-expr (.getRightExpression ^GreaterThanEquals expr) counter-atom))
+    (instance? MinorThan expr)
+    (into (vec (collect-aggs-from-expr (.getLeftExpression ^MinorThan expr) counter-atom))
+          (collect-aggs-from-expr (.getRightExpression ^MinorThan expr) counter-atom))
+    (instance? MinorThanEquals expr)
+    (into (vec (collect-aggs-from-expr (.getLeftExpression ^MinorThanEquals expr) counter-atom))
+          (collect-aggs-from-expr (.getRightExpression ^MinorThanEquals expr) counter-atom))
+    (instance? EqualsTo expr)
+    (into (vec (collect-aggs-from-expr (.getLeftExpression ^EqualsTo expr) counter-atom))
+          (collect-aggs-from-expr (.getRightExpression ^EqualsTo expr) counter-atom))
+    (instance? NotEqualsTo expr)
+    (into (vec (collect-aggs-from-expr (.getLeftExpression ^NotEqualsTo expr) counter-atom))
+          (collect-aggs-from-expr (.getRightExpression ^NotEqualsTo expr) counter-atom))
+
+    ;; CASE WHEN with aggregate conditions
+    (instance? CaseExpression expr)
+    (let [^CaseExpression ce expr]
+      (into []
+            (concat
+             (mapcat (fn [^WhenClause w]
+                       (concat (collect-aggs-from-expr (.getWhenExpression w) counter-atom)
+                               (collect-aggs-from-expr (.getThenExpression w) counter-atom)))
+                     (.getWhenClauses ce))
+             (when-let [e (.getElseExpression ce)]
+               (collect-aggs-from-expr e counter-atom)))))
 
     :else nil))
 
@@ -781,8 +835,56 @@
     (when (= 1 (.size ^ParenthesedExpressionList expr))
       (build-post-expr (.get ^ParenthesedExpressionList expr 0) agg-map))
 
+    ;; Comparison operators (for CASE WHEN conditions)
+    (instance? GreaterThan expr)
+    (let [l (build-post-expr (.getLeftExpression ^GreaterThan expr) agg-map)
+          r (build-post-expr (.getRightExpression ^GreaterThan expr) agg-map)]
+      (when (and l r) [:> l r]))
+
+    (instance? GreaterThanEquals expr)
+    (let [l (build-post-expr (.getLeftExpression ^GreaterThanEquals expr) agg-map)
+          r (build-post-expr (.getRightExpression ^GreaterThanEquals expr) agg-map)]
+      (when (and l r) [:>= l r]))
+
+    (instance? MinorThan expr)
+    (let [l (build-post-expr (.getLeftExpression ^MinorThan expr) agg-map)
+          r (build-post-expr (.getRightExpression ^MinorThan expr) agg-map)]
+      (when (and l r) [:< l r]))
+
+    (instance? MinorThanEquals expr)
+    (let [l (build-post-expr (.getLeftExpression ^MinorThanEquals expr) agg-map)
+          r (build-post-expr (.getRightExpression ^MinorThanEquals expr) agg-map)]
+      (when (and l r) [:<= l r]))
+
+    (instance? EqualsTo expr)
+    (let [l (build-post-expr (.getLeftExpression ^EqualsTo expr) agg-map)
+          r (build-post-expr (.getRightExpression ^EqualsTo expr) agg-map)]
+      (when (and l r) [:= l r]))
+
+    (instance? NotEqualsTo expr)
+    (let [l (build-post-expr (.getLeftExpression ^NotEqualsTo expr) agg-map)
+          r (build-post-expr (.getRightExpression ^NotEqualsTo expr) agg-map)]
+      (when (and l r) [:!= l r]))
+
+    ;; CASE WHEN with aggregate conditions → post-agg CASE expression
+    (instance? CaseExpression expr)
+    (let [^CaseExpression ce expr
+          whens (mapv (fn [^WhenClause w]
+                        {:cond (build-post-expr (.getWhenExpression w) agg-map)
+                         :then (let [te (.getThenExpression w)]
+                                 (or (build-post-expr te agg-map)
+                                     (translate-expr te)))})
+                      (.getWhenClauses ce))
+          else-val (when-let [e (.getElseExpression ce)]
+                     (or (build-post-expr e agg-map)
+                         (translate-expr e)))]
+      [:case-post whens else-val])
+
     (instance? LongValue expr) (.getValue ^LongValue expr)
     (instance? DoubleValue expr) (.getValue ^DoubleValue expr)
+    (instance? StringValue expr) (.getValue ^StringValue expr)
+    (instance? NullValue expr) nil
+    (instance? Column expr) (translate-column expr)
 
     :else nil))
 
@@ -1178,7 +1280,8 @@
                     (assoc table-registry from-table-name data)
                     table-registry)])
 
-          :else [nil table-registry])
+          ;; No FROM clause — synthesize a single-row dummy table
+          :else [{:__dummy (long-array [0])} table-registry])
 
         ;; Classify select items into projections vs aggregates vs window functions
         has-group? (some? group-by)
@@ -1212,15 +1315,16 @@
                                              {:aggs [(if alias-name
                                                        [:as simple-agg (keyword alias-name)]
                                                        simple-agg)]}
-                                             ;; Compound: MAX(v1) - MIN(v2) AS alias
+                                             ;; Compound: MAX(v1) - MIN(v2) AS alias, or CASE with agg
                                              (let [collected (collect-aggs-from-expr expr agg-counter)
                                                    agg-map (into {} (map (fn [[spec kw]] [spec kw]) collected))
-                                                   post-expr (build-post-expr expr agg-map)]
+                                                   post-expr (build-post-expr expr agg-map)
+                                                   eff-alias (keyword (or alias-name
+                                                                          (str "_case_" (swap! agg-counter inc))))]
                                                {:aggs (mapv (fn [[spec kw]] [:as spec kw]) collected)
-                                                :post-agg (when alias-name
-                                                            {:alias (keyword alias-name)
-                                                             :expr post-expr
-                                                             :sources (mapv second collected)})})))))))
+                                                :post-agg {:alias eff-alias
+                                                           :expr post-expr
+                                                           :sources (mapv second collected)}})))))))
                              (vec)))
         aggs (when (seq agg-items-raw)
                (vec (mapcat :aggs agg-items-raw)))
@@ -1384,7 +1488,44 @@
                (into (or aggs []) having-only-aliased)
                aggs)
 
-        ;; Build ORDER BY
+        ;; Build ORDER BY — inject aggregate expressions not already in agg list
+        order-agg-injections
+        (when (and order-by (or has-agg? has-group?))
+          (vec (keep (fn [^OrderByElement elem]
+                       (let [expr (.getExpression elem)]
+                         (when (and (instance? Function expr)
+                                    (aggregate-function? ^Function expr))
+                           (let [agg-spec (translate-aggregate ^Function expr)
+                                 ;; Build the alias key the same way translate-expr does
+                                 ^Function f expr
+                                 agg-name-upper (-> (.getName f) (.toUpperCase))
+                                 params (when-let [p (.getParameters f)]
+                                          (mapv translate-expr p))
+                                 alias-kw (if (and (seq params) (keyword? (first params)))
+                                            (keyword (str (.toLowerCase agg-name-upper) "_" (name (first params))))
+                                            (keyword (.toLowerCase agg-name-upper)))]
+                             {:spec agg-spec :alias alias-kw}))))
+                     order-by)))
+        ;; Filter out aggs already in the list
+        order-agg-injections
+        (when (seq order-agg-injections)
+          (let [existing-aliases (set (map (fn [a]
+                                             (if (= :as (first a))
+                                               (nth a 2)
+                                               (let [spec (if (= :as (first a)) (second a) a)]
+                                                 (let [op-kw (first spec)
+                                                       col-kw (second spec)]
+                                                   (if col-kw
+                                                     (keyword (str (name op-kw) "_" (name col-kw)))
+                                                     op-kw)))))
+                                           (or aggs [])))]
+            (vec (remove #(contains? existing-aliases (:alias %)) order-agg-injections))))
+        aggs (if (seq order-agg-injections)
+               (into (or aggs [])
+                     (mapv (fn [{:keys [spec alias]}]
+                             [:as spec alias])
+                           order-agg-injections))
+               aggs)
         orders (when order-by
                  (mapv translate-order-element order-by))
 
@@ -1490,6 +1631,8 @@
                 (seq window-specs) (assoc :window window-specs)
                 (seq post-aggs) (assoc :_post-aggs post-aggs)
                 (seq having-only-keys) (assoc :_having-only-keys having-only-keys)
+                (seq order-agg-injections) (assoc :_order-only-keys
+                                                  (set (map :alias order-agg-injections)))
                 ;; Only attach _select-columns when literals need injection into
                 ;; an aggregate/group-by query (the bug: literals are dropped).
                 ;; Pure projection queries use :select; don't interfere.
@@ -1503,18 +1646,37 @@
 ;; ============================================================================
 
 (defn- eval-post-expr
-  "Evaluate a post-aggregate expression against a result row."
+  "Evaluate a post-aggregate expression against a result row.
+   Returns double for arithmetic, or any value for CASE-post (strings, etc.)."
   [expr row]
   (cond
-    (keyword? expr) (double (get row expr 0))
+    (keyword? expr) (let [v (get row expr 0)] (if (number? v) (double v) v))
     (number? expr)  (double expr)
-    (vector? expr)  (let [[op a b] expr]
+    (string? expr)  expr
+    (nil? expr)     nil
+    (vector? expr)  (let [[op a b c] expr]
                       (case op
-                        :+ (+ (eval-post-expr a row) (eval-post-expr b row))
-                        :- (- (eval-post-expr a row) (eval-post-expr b row))
-                        :* (* (eval-post-expr a row) (eval-post-expr b row))
-                        :/ (let [denom (eval-post-expr b row)]
-                             (if (zero? denom) Double/NaN (/ (eval-post-expr a row) denom)))))
+                        :+ (+ (double (eval-post-expr a row)) (double (eval-post-expr b row)))
+                        :- (- (double (eval-post-expr a row)) (double (eval-post-expr b row)))
+                        :* (* (double (eval-post-expr a row)) (double (eval-post-expr b row)))
+                        :/ (let [denom (double (eval-post-expr b row))]
+                             (if (zero? denom) Double/NaN (/ (double (eval-post-expr a row)) denom)))
+                        ;; Comparison operators for CASE post-agg conditions
+                        :>  (> (double (eval-post-expr a row)) (double (eval-post-expr b row)))
+                        :>= (>= (double (eval-post-expr a row)) (double (eval-post-expr b row)))
+                        :<  (< (double (eval-post-expr a row)) (double (eval-post-expr b row)))
+                        :<= (<= (double (eval-post-expr a row)) (double (eval-post-expr b row)))
+                        :=  (= (eval-post-expr a row) (eval-post-expr b row))
+                        :!= (not= (eval-post-expr a row) (eval-post-expr b row))
+                        ;; CASE post-agg expression
+                        :case-post
+                        (let [whens a  ;; vector of {:cond ... :then ...}
+                              else-val b]
+                          (or (some (fn [{:keys [cond then]}]
+                                      (when (eval-post-expr cond row)
+                                        (eval-post-expr then row)))
+                                    whens)
+                              (eval-post-expr else-val row)))))
     :else 0.0))
 
 (defn apply-post-aggs

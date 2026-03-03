@@ -3096,13 +3096,8 @@
                                                          (aget accs agg-base))]
                                             [alias result]))
                                         aggs))]
-                    ;; Filter out groups with zero valid agg rows (all NaN)
-                             (let [max-cnt (loop [idx 0 mx 0.0]
-                                             (if (>= idx (count aggs))
-                                               mx
-                                               (recur (inc idx)
-                                                      (Math/max mx (aget accs (inc (* idx 2)))))))]
-                               (when (pos? max-cnt)
-                                 (merge base {:_count (long (aget accs 1))} agg-results))))))
+                    ;; Always emit group — HashMap membership implies existence.
+                             ;; count-non-null aggs legitimately have count=0 (all NULLs).
+                             (merge base {:_count (long (aget accs 1))} agg-results))))
                 entries))))))
 
