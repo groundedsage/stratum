@@ -1,1 +1,4 @@
-{"Getting Started" ["quickstart"]}
+{"Getting Started" ["quickstart"]
+ "Internals" ["csv_import"
+              "columnar_internals"]
+ "Reference" ["api_reference"]}
