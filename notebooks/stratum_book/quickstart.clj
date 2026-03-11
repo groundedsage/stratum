@@ -1,8 +1,11 @@
 ;; # Quickstart
 ;;
-;; A minimal introduction to **Stratum** — a persistent columnar
-;; analytics engine for Clojure with SIMD-accelerated queries,
-;; SQL support, and copy-on-write semantics.
+;; A minimal introduction to **[Stratum](https://github.com/replikativ/stratum)** — a persistent
+;; [columnar](https://en.wikipedia.org/wiki/Column-oriented_DBMS)
+;; analytics engine for Clojure with
+;; [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data)-accelerated
+;; queries, SQL support, and
+;; [copy-on-write](https://en.wikipedia.org/wiki/Copy-on-write) semantics.
 
 (ns stratum-book.quickstart
   (:require
@@ -16,7 +19,7 @@
 ;; ## Your Data, Your Way
 ;;
 ;; Stratum works with column maps — maps from keywords to typed arrays.
-;; The same shape tablecloth uses under the hood.
+;; The same shape [tablecloth](https://github.com/scicloj/tablecloth) uses under the hood.
 
 (def orders
   {:product (into-array String ["Apple" "Banana" "Apple" "Cherry" "Banana" "Apple"])
@@ -56,8 +59,8 @@
 
 ;; ## Tablecloth Integration
 ;;
-;; Pass a tablecloth (or tech.ml.dataset) dataset directly — Stratum reads
-;; its columns with zero copy.
+;; Pass a tablecloth (or [tech.ml.dataset](https://github.com/techascent/tech.ml.dataset))
+;; dataset directly — Stratum reads its columns with zero copy.
 
 (def tc-ds
   (tc/dataset {:category ["Electronics" "Clothing" "Electronics" "Clothing" "Electronics"]
@@ -85,8 +88,10 @@
 
 ;; ## Zone Map Pruning
 ;;
-;; For index-backed datasets, Stratum tracks min/max per 8192-row chunk.
-;; Range queries classify each chunk as: skip / stats-only / SIMD — so
+;; For index-backed datasets, Stratum tracks min/max per 8192-row chunk
+;; using [zone maps](https://en.wikipedia.org/wiki/Block_Range_Index).
+;; Range queries classify each chunk as: skip / stats-only / SIMD
+;; (via the [Java Vector API](https://openjdk.org/jeps/460)) — so
 ;; a predicate like `ts >= 900000` only touches ~1% of chunks.
 
 (def time-series
@@ -104,7 +109,8 @@
 
 ;; ## Statistics: STDDEV and CORR
 ;;
-;; Welford's online algorithm, single pass in Java.
+;; [Welford's online algorithm](https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm),
+;; single pass in Java.
 
 (def sensors
   {:temp     (double-array [20.1 20.5 21.0 19.8 20.3 22.0])
@@ -123,7 +129,8 @@
 
 ;; ## Hash Joins
 ;;
-;; INNER, LEFT, RIGHT, FULL join support.
+;; [Hash join](https://en.wikipedia.org/wiki/Hash_join) support:
+;; INNER, LEFT, RIGHT, FULL.
 
 (def fact
   {:order-id   (long-array [1 2 3 4 5])
@@ -149,7 +156,9 @@
 ;; ## Persistence
 ;;
 ;; Datasets are immutable Clojure values. `st/sync!` durably persists to a
-;; Konserve store. `st/fork` is O(1) — structural sharing with copy-on-write.
+;; [Konserve](https://github.com/replikativ/konserve) store. `st/fork` is
+;; O(1) — [structural sharing](https://en.wikipedia.org/wiki/Persistent_data_structure)
+;; with copy-on-write.
 
 (require '[konserve.store :as kstore])
 
