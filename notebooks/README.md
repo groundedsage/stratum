@@ -13,8 +13,9 @@ notebooks/
 ├── custom.scss               # Quarto styling (Fira Code, table tweaks)
 └── stratum_book/             # chapters live here
     ├── quickstart.clj
-    ├── csv_import.clj
     ├── columnar_internals.clj
+    ├── dataset_persistence.clj
+    ├── tablecloth_interop.clj
     └── api_reference.clj
 
 clay.edn                      # Clay config (Quarto theme, target paths)
@@ -35,9 +36,9 @@ Assertions use `kind/test-last`:
  [(fn [result] (= 1 (count result)))])
 ```
 
-When Clay renders the notebook, `kind/test-last` runs the predicate
-against the preceding expression's value. If it fails, the build fails
-— so the rendered docs are always correct.
+Clay's [test generation](https://scicloj.github.io/clay/clay_book.test_generation.html)
+turns these annotations into standard `clojure.test` / `deftest` forms,
+so the assertions run as part of the regular test suite.
 
 ## Building the book
 
@@ -66,9 +67,10 @@ then calls Clay which:
 
 ## Running tests
 
-The notebooks are on the `:test` classpath. The test runner picks up
-any `deftest` forms in them. The `kind/test-last` assertions run
-during Clay rendering — they don't need the test runner.
+The notebooks are on the `:test` classpath. `kind/test-last`
+annotations [generate](https://scicloj.github.io/clay/clay_book.test_generation.html)
+`deftest` forms that the test runner picks up
+alongside traditional `deftest` tests.
 
 ```bash
 ./run_tests.sh
