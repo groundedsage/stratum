@@ -6,6 +6,8 @@
 ;; Each section shows a function signature, a brief description,
 ;; and a live example with an assertion.
 
+^{:kindly/hide-code true
+  :kindly/options {:kinds-that-hide-code #{:kind/doc}}}
 (ns stratum-book.api-reference
   (:require
    [stratum.api :as st]
@@ -17,9 +19,7 @@
 ;;
 ;; ## Querying
 
-;; ### `q` — query the analytical engine
-;;
-;; Accepts a DSL map **or** an SQL string.
+(kind/doc #'st/q)
 
 ;; **DSL map** — Clojure data describing `:from`, `:where`, `:agg`,
 ;; `:group`, `:select`, `:join`, `:window`, `:order`, `:limit`,
@@ -49,9 +49,7 @@
  [(fn [result]
     (= 2 (count result)))])
 
-;; ### `explain` — show execution plan without running
-;;
-;; Returns a map describing the strategy Stratum would use.
+(kind/doc #'st/explain)
 
 (st/explain {:from data
              :where [[:> :qty 15]]
@@ -65,9 +63,7 @@
 ;;
 ;; ## Data Import
 
-;; ### `from-maps` — sequence of maps to dataset
-;;
-;; Type-inferred: integers → `long[]`, floats → `double[]`, else → `String[]`.
+(kind/doc #'st/from-maps)
 
 (def people
   (st/from-maps [{:name "Alice" :age 30}
@@ -80,16 +76,12 @@
  [(fn [result]
     (= 2 (:count (first result))))])
 
-;; ### `from-csv` — read a CSV file
-;;
-;; Options: `:separator`, `:header?`, `:types`, `:limit`, `:name`.
+(kind/doc #'st/from-csv)
 
 ;; (st/from-csv "data/orders.csv")
 ;; (st/from-csv "data/orders.tsv" :separator \tab)
 
-;; ### `from-parquet` — read a [Parquet](https://parquet.apache.org/) file
-;;
-;; Options: `:columns` (select subset), `:limit`, `:name`.
+(kind/doc #'st/from-parquet)
 
 ;; (st/from-parquet "data/orders.parquet")
 ;; (st/from-parquet "data/orders.parquet" :columns ["qty" "price"] :limit 1000)
@@ -98,10 +90,7 @@
 ;;
 ;; ## Column Encoding
 
-;; ### `encode-column` — pre-encode a raw array
-;;
-;; `String[]` → dictionary-encoded (stored as `long[]` codes + dictionary),
-;; `long[]`/`double[]` → passthrough.
+(kind/doc #'st/encode-column)
 
 (st/encode-column (into-array String ["x" "y" "x" "z"]))
 
@@ -115,12 +104,7 @@
  [(fn [col]
     (= :float64 (:type col)))])
 
-;; ### `index-from-seq` — create a persistent column index
-;;
-;; Produces a
-;; [PersistentColumnIndex](https://github.com/replikativ/stratum/blob/main/src/stratum/index.clj)
-;; with zone-map metadata per chunk, required for persistence and
-;; zone-map pruning.
+(kind/doc #'st/index-from-seq)
 
 (st/index-from-seq :int64 [10 20 30 40 50])
 
@@ -138,7 +122,7 @@
 ;;
 ;; ## Data Conversion
 
-;; ### `results->columns` — result maps to column arrays
+(kind/doc #'st/results->columns)
 
 (st/results->columns [{:a 1 :b "x"} {:a 2 :b "y"}])
 
@@ -147,9 +131,7 @@
     (and (contains? cols :a)
          (contains? cols :b)))])
 
-;; ### `tuples->columns` — positional tuples to column map
-;;
-;; Column names supplied separately; types inferred from values.
+(kind/doc #'st/tuples->columns)
 
 (st/tuples->columns [[1 "Alice"] [2 "Bob"]] [:id :name])
 
@@ -158,9 +140,7 @@
     (and (contains? cols :id)
          (contains? cols :name)))])
 
-;; ### `columns->tuples` — column map to positional tuples
-;;
-;; Takes a column map and a vector of column names specifying order.
+(kind/doc #'st/columns->tuples)
 
 (st/columns->tuples {:id (long-array [1 2])
                      :name (into-array String ["Alice" "Bob"])}
@@ -174,10 +154,7 @@
 ;;
 ;; ## Dataset Construction
 
-;; ### `make-dataset` — create a StratumDataset
-;;
-;; Wraps a column map into an immutable dataset value with
-;; metadata, schema introspection, and persistence support.
+(kind/doc #'st/make-dataset)
 
 (def ds
   (st/make-dataset
@@ -190,14 +167,14 @@
 (kind/test-last
  [(fn [n] (= "example" n))])
 
-;; ### `row-count`
+(kind/doc #'st/row-count)
 
 (st/row-count ds)
 
 (kind/test-last
  [(fn [n] (= 5 n))])
 
-;; ### `column-names`
+(kind/doc #'st/column-names)
 
 (st/column-names ds)
 
@@ -205,7 +182,7 @@
  [(fn [names]
     (= (set names) #{:x :y}))])
 
-;; ### `schema` — column types and nullability
+(kind/doc #'st/schema)
 
 (st/schema ds)
 
@@ -214,7 +191,7 @@
     (and (contains? s :x)
          (contains? s :y)))])
 
-;; ### `ensure-indexed` — convert array columns to index-backed
+(kind/doc #'st/ensure-indexed)
 
 (def plain
   (st/make-dataset {:a (long-array [1 2 3])
@@ -249,7 +226,7 @@
 
 (def store (kstore/create-store store-cfg {:sync? true}))
 
-;; ### `sync!` — persist dataset to a branch
+(kind/doc #'st/sync!)
 
 (def saved (st/sync! ds store "main"))
 
@@ -258,7 +235,7 @@
 (kind/test-last
  [(fn [id] (uuid? id))])
 
-;; ### `load` — load dataset from a branch
+(kind/doc #'st/load)
 
 (def loaded (st/load store "main"))
 
@@ -267,7 +244,7 @@
 (kind/test-last
  [(fn [n] (= 5 n))])
 
-;; ### `fork` — O(1) structural fork
+(kind/doc #'st/fork)
 
 (def forked
   (-> (st/fork ds)
@@ -280,7 +257,7 @@
 (kind/test-last
  [(fn [n] (= 6 n))])
 
-;; ### `gc!` — mark-and-sweep garbage collection
+(kind/doc #'st/gc!)
 
 (st/sync! forked store "experiment")
 
@@ -303,7 +280,7 @@
 ;; Utilities for programmatic query construction — normalize
 ;; user-facing syntax to internal form.
 
-;; ### `normalize-pred`
+(kind/doc #'st/normalize-pred)
 
 (st/normalize-pred [:> :price 10])
 
@@ -311,7 +288,7 @@
  [(fn [pred]
     (vector? pred))])
 
-;; ### `normalize-agg`
+(kind/doc #'st/normalize-agg)
 
 (st/normalize-agg [:sum :qty])
 
@@ -319,7 +296,7 @@
  [(fn [agg]
     (= :sum (:op agg)))])
 
-;; ### `normalize-expr`
+(kind/doc #'st/normalize-expr)
 
 (st/normalize-expr [:* :price :qty])
 
@@ -335,7 +312,7 @@
 ;; implementation — train on columnar data, score/predict in a single
 ;; pass.
 
-;; ### `train-iforest` — train a model
+(kind/doc #'st/train-iforest)
 
 (def normal-data
   {:x (double-array (repeatedly 500 #(+ 50.0 (* 5.0 (- (rand) 0.5)))))
@@ -353,9 +330,7 @@
 (kind/test-last
  [(fn [n] (= 50 n))])
 
-;; ### `iforest-score` — anomaly scores ∈ [0, 1]
-;;
-;; Higher scores indicate more anomalous points.
+(kind/doc #'st/iforest-score)
 
 (def test-data
   {:x (double-array [50.0 50.0 999.0])
@@ -369,7 +344,7 @@
  [(fn [s]
     (> (nth s 2) (nth s 0)))])
 
-;; ### `iforest-predict` — binary labels (1 = anomaly)
+(kind/doc #'st/iforest-predict)
 
 (seq (st/iforest-predict model test-data))
 
